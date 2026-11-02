@@ -94,3 +94,69 @@ def format_season(season_start: int) -> str:
         str: Season label in "YYYY/YY" format.
     """
     return f"{season_start}/{(season_start + 1) % 100:02d}"
+
+
+def build_team_season_table(matches: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build final league tables (one row per team per division-season) from results.
+
+    For EDA and reporting only, never as model features. These are end-of-season totals, so they include matches played after any given date in the season.
+
+    Teams are ranked by points, then goal difference, then goals scored. La Liga's official tiebreak is head-to-head, but no season in the data has two teams level on points at the top, so champions are unaffected.
+
+    Args:
+        matches (pd.DataFrame): Cleaned matches with Division, SeasonStart, Season, HomeTeam, AwayTeam, FTHome and FTAway.
+
+    Returns:
+        pd.DataFrame: One row per (Division, Season, Team) with Played, Wins, Draws, Losses, GoalsFor, GoalsAgainst, GoalDiff, Points, PointsPerMatch and Rank, sorted by division, season and rank.
+    """
+    context_columns = ["Division", "SeasonStart", "Season"]
+    long_columns = context_columns + ["Team", "GoalsFor", "GoalsAgainst"]
+
+    # Each match seen from both sides. The home team's goals are "for" in the home view and "against" in the away view. set_axis renames by position
+    home_view = matches[context_columns + ["HomeTeam", "FTHome", "FTAway"]].set_axis(
+        long_columns, axis=1
+    )
+
+    away_view = matches[context_columns + ["AwayTeam", "FTAway", "FTHome"]].set_axis(
+        long_columns, axis=1
+    )
+
+    team_matches = pd.concat([home_view, away_view], ignore_index=True)
+
+    goal_margin = team_matches["GoalsFor"] - team_matches["GoalsAgainst"]
+    team_matches = team_matches.assign(
+        Win=goal_margin > 0, Draw=goal_margin == 0, Loss=goal_margin < 0
+    )
+
+    # Summing True / False counts the Trues: Wins = numbers of matches won
+    table = (
+        team_matches.groupby(context_columns + ["Team"])
+        .agg(
+            Played=("Win", "size"),
+            Wins=("Win", "sum"),
+            Draws=("Draw", "sum"),
+            Losses=("Loss", "sum"),
+            GoalsFor=("GoalsFor", "sum"),
+            GoalsAgainst=("GoalsAgainst", "sum"),
+        )
+        .reset_index()
+    )
+
+    table = table.assign(
+        GoalDiff=table["GoalsFor"] - table["GoalsAgainst"],
+        Points=3 * table["Wins"] + table["Draws"],
+    )
+
+    # Points per match, not raw points: 2004/05 is incomplete (27 matches per team)
+    table["PointsPerMatch"] = table["Points"] / table["Played"]
+
+    # After sorting, the position within each division-season is the rank
+    table = table.sort_values(
+        ["Division", "SeasonStart", "Points", "GoalDiff", "GoalsFor"],
+        ascending=[True, True, False, False, False],
+    )
+
+    table["Rank"] = table.groupby(["Division", "SeasonStart"]).cumcount() + 1
+
+    return table.reset_index(drop=True)
