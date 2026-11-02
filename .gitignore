@@ -1,0 +1,18 @@
+data/raw/
+*.zip
+*.part
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Secrets and local editor/OS files
+.env
+.vscode/
+.DS_Store
+
+# Excel lock files (created while a workbook is open)
+~$*.xlsx
+
+*.md
