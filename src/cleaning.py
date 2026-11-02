@@ -81,3 +81,16 @@ def missing_pct_by_group(
             missing percentage (0 - 100, rounded to 1 decimal).
     """
     return (df[columns].isna().groupby(df[group_col]).mean() * 100).round(1)
+
+
+def format_season(season_start: int) -> str:
+    """
+    Turn a season's start year into its label, e.g 2025 -> "2025/26".
+
+    Args:
+        season_start (int): Calendar year the season starts in.
+
+    Returns:
+        str: Season label in "YYYY/YY" format.
+    """
+    return f"{season_start}/{(season_start + 1) % 100:02d}"
