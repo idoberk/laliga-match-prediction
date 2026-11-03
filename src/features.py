@@ -75,3 +75,30 @@ def build_team_matches(matches: pd.DataFrame) -> pd.DataFrame:
 
     # Per-team history must be in date order
     return team_matches.sort_values(["Team", "MatchDate"]).reset_index(drop=True)
+
+
+def add_rolling_averages(
+    team_matches: pd.DataFrame, columns: list[str], window: int, min_periods: int
+) -> pd.DataFrame:
+    """
+    Add teach team's average of `columns` over its previous `window` matches.
+
+    shift(1) runs before rolling(), so the row of match M only averages matches
+    played before M. The match's own stats never enter its feature (no leakage).
+
+    Args:
+        team_matches (pd.DataFrame): Output of build_team_matches, sorted by team and date.
+        columns (list[str]): Per-match stats to average, e.g "GoalsFor".
+        window (int): Number of previous matches in the average.
+        min_periods (int): Minimum number of previous matches with a value.
+            Below it, the average is NaN rather than a one-match value.
+
+    Returns:
+        pd.DataFrame: team_matches with one new column per stat, named f"{column}Avg{window}".
+            e.g "GoalsForAvg10".
+    """
+    rolling_averages = team_matches.groupby("Team")[columns].transform(
+        lambda stats: stats.shift(1).rolling(window, min_periods=min_periods).mean()
+    )
+
+    return team_matches.join(rolling_averages.add_suffix(f"Avg{window}"))
