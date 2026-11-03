@@ -145,3 +145,31 @@ def add_promoted_flag(team_matches: pd.DataFrame, top_division: str) -> pd.DataF
     return team_matches.merge(
         team_seasons, on=["Team", "SeasonStart", "Division"], how="left"
     )
+
+
+def add_team_features(
+    matches: pd.DataFrame, team_matches: pd.DataFrame, columns: list[str]
+) -> pd.DataFrame:
+    """
+    Join each side's team-level features back onto its match.
+
+    The inverse of build_team_matches. The home team's row of a match becomes
+    Home* columns and the away team's row becomes Away* columns.
+
+    Args:
+        matches (pd.DataFrame): The matches passed to build_team_matches, with
+            the same index (its labels are the MatchId values).
+        team_matches (pd.DataFrame): Output of build_team_matches, with the
+            feature columns added.
+        columns (list[str]): Team-level columns to join, e.g "GoalsForAvg10".
+
+    Returns:
+        pd.DataFrame: matches with f"Home{column}" and f"Away{column}" for each
+            column.
+    """
+    team_rows = team_matches.set_index("MatchId")
+    home_features = team_rows.loc[team_rows["IsHome"], columns].add_prefix("Home")
+    away_features = team_rows.loc[~team_rows["IsHome"], columns].add_prefix("Away")
+
+    # join() matches on the index: MatchId on one side, the match's label on the other
+    return matches.join(home_features).join(away_features)
