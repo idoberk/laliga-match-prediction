@@ -78,10 +78,14 @@ def build_team_matches(matches: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_rolling_averages(
-    team_matches: pd.DataFrame, columns: list[str], window: int, min_periods: int
+    team_matches: pd.DataFrame,
+    columns: list[str],
+    window: int,
+    min_periods: int,
+    division: str | None = None,
 ) -> pd.DataFrame:
     """
-    Add teach team's average of `columns` over its previous `window` matches.
+    Add each team's average of `columns` over its previous `window` matches.
 
     shift(1) runs before rolling(), so the row of match M only averages matches
     played before M. The match's own stats never enter its feature (no leakage).
@@ -92,13 +96,52 @@ def add_rolling_averages(
         window (int): Number of previous matches in the average.
         min_periods (int): Minimum number of previous matches with a value.
             Below it, the average is NaN rather than a one-match value.
+        division (str | None): If given, only matches in this division count.
+            Matches in other divisions still take a place in the window, but add no value to the average.
 
     Returns:
         pd.DataFrame: team_matches with one new column per stat, named f"{column}Avg{window}".
             e.g "GoalsForAvg10".
     """
-    rolling_averages = team_matches.groupby("Team")[columns].transform(
-        lambda stats: stats.shift(1).rolling(window, min_periods=min_periods).mean()
+    stats = team_matches[columns]
+
+    if division is not None:
+        # Blank the other divisions' stats (NaN), which rolling().mean() skips
+        stats = stats.where(team_matches["Division"] == division)
+
+    rolling_averages = stats.groupby(team_matches["Team"]).transform(
+        lambda team_stats: (
+            team_stats.shift(1).rolling(window, min_periods=min_periods).mean()
+        )
     )
 
     return team_matches.join(rolling_averages.add_suffix(f"Avg{window}"))
+
+
+def add_promoted_flag(team_matches: pd.DataFrame, top_division: str) -> pd.DataFrame:
+    """
+    Flag the rows of a team's first top-division season after a lower division.
+
+    Args:
+        team_matches (pd.DataFrame): Output of build_team_matches.
+        top_division (str): Code of the top division, e.g "SP1".
+
+    Returns:
+        pd.DataFrame: team_matches with a boolean IsPromoted column.
+    """
+    # One row per team per season, in season order per team
+    team_seasons = (
+        team_matches[["Team", "SeasonStart", "Division"]]
+        .drop_duplicates()
+        .sort_values(["Team", "SeasonStart"])
+    )
+
+    # The team's division in its previous season in the data (NaN in its first)
+    previous_division = team_seasons.groupby("Team")["Division"].shift(1)
+    team_seasons["IsPromoted"] = (team_seasons["Division"] == top_division) & (
+        previous_division.notna() & (previous_division != top_division)
+    )
+
+    return team_matches.merge(
+        team_seasons, on=["Team", "SeasonStart", "Division"], how="left"
+    )
