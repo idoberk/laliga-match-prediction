@@ -173,3 +173,42 @@ def add_team_features(
 
     # join() matches on the index: MatchId on one side, the match's label on the other
     return matches.join(home_features).join(away_features)
+
+
+def latest_rolling_averages(
+    team_matches: pd.DataFrame,
+    columns: list[str],
+    window: int,
+    min_periods: int,
+    division: str | None = None,
+) -> pd.DataFrame:
+    """
+    Compute each team's rolling averages for its next match (not played yet).
+
+    Same rules as add_rolling_averages, but the team's last played match is included.
+    For the next match, all played matches are in the past.
+
+    Args:
+        team_matches (pd.DataFrame): Output of build_team_matches, sorted by team
+            and date.
+        columns (list[str]): Per match stats to average, e.g "GoalsFor".
+        window (int): Number of last matches in the average.
+        min_periods (int): Minimum number of those matches with a value. Below it, the average is NaN.
+        division (str | None): If given, only matches in this division count.
+
+    Returns:
+        pd.DataFrame: One row per team (the index), one column per stat, named
+            f"{column}Avg{window}", e.g "GoalsForAvg10".
+    """
+    stats = team_matches[columns]
+
+    if division is not None:
+        # Blank the other divisions' stats (NaN), which mean() and count() skip
+        stats = stats.where(team_matches["Division"] == division)
+
+    # Each team's last `window` rows, then one average per team
+    last_matches = stats.groupby(team_matches["Team"]).tail(window)
+    by_team = last_matches.groupby(team_matches["Team"])
+    averages = by_team.mean().where(by_team.count() >= min_periods)
+
+    return averages.add_suffix(f"Avg{window}")
